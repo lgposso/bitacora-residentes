@@ -1,0 +1,46 @@
+# Lleva a Google Drive las evidencias de la app cada 30 minutos (y cuando se pulse "Run workflow").
+name: Sincronizar con Google Drive
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: sincronizar
+  cancel-in-progress: false
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: sync
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: sync/requirements.txt
+
+      - name: Instalar dependencias y rclone
+        run: |
+          pip install -r sync/requirements.txt
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+
+      - name: Configurar rclone
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: |
+          mkdir -p ~/.config/rclone
+          printf '%s\n' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
+
+      - name: Sincronizar
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: python sync/sincronizar.py

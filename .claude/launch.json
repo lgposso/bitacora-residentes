@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bitacora-local",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "npm run local -- -p 3100"],
+      "port": 3100
+    }
+  ]
+}

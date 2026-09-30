@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PROGRAMAS } from '@/lib/config';
 import { api, ErrorApi } from '@/lib/cliente';
 
@@ -14,9 +14,15 @@ interface Residente {
   carpeta: string;
 }
 
+interface Corrida {
+  estado: 'sin-configurar' | 'nunca' | 'en-curso' | 'exitosa' | 'fallida';
+  inicio: string | null;
+  url: string | null;
+}
+
 interface Panel {
   residentes: Residente[];
-  sync: { archivosPendientes: number; hojasPendientes: number; ultima: string | null; urlAcciones: string | null };
+  sync: { archivosPendientes: number; hojasPendientes: number; ultima: string | null };
   urlApp: string;
 }
 
@@ -36,6 +42,10 @@ export function AdminApp() {
   const [ocupado, setOcupado] = useState('');
   const [alerta, setAlerta] = useState('');
   const [aviso, setAviso] = useState('');
+  const [corrida, setCorrida] = useState<Corrida | null>(null);
+  const [confirmar, setConfirmar] = useState('');
+  const [claveDe, setClaveDe] = useState('');
+  const sondeo = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fallo = useCallback((e: unknown) => {
     if (e instanceof ErrorApi && e.expirada) {
@@ -53,6 +63,31 @@ export function AdminApp() {
       .catch((e) => { if (!(e instanceof ErrorApi && e.status === 401)) fallo(e); })
       .finally(() => setCargando(false));
   }, [fallo]);
+
+  /** Consulta la sincronización en GitHub hasta que termine; al terminar, actualiza los contadores. */
+  const seguirSync = useCallback(function seguir(intentos = 0) {
+    if (sondeo.current) clearTimeout(sondeo.current);
+    api<Corrida>('/api/admin/sincronizar').then(async (c) => {
+      setCorrida(c);
+      if (c.estado === 'en-curso' && intentos < 90) {
+        sondeo.current = setTimeout(() => seguir(intentos + 1), 5000);
+      } else if (intentos > 0) {
+        setPanel(await api<Panel>('/api/admin/residentes'));
+        if (c.estado === 'exitosa') setAviso('Sincronización terminada: todo lo pendiente ya está en Google Drive.');
+        if (c.estado === 'fallida') setAlerta('La sincronización falló. Intente de nuevo; si se repite, avíseme.');
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (panel) seguirSync();
+    return () => { if (sondeo.current) clearTimeout(sondeo.current); };
+  }, [panel !== null, seguirSync]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sincronizarAhora = () => accion('sync', async () => {
+    setCorrida(await api<Corrida>('/api/admin/sincronizar', {}));
+    sondeo.current = setTimeout(() => seguirSync(1), 5000);
+  });
 
   useEffect(() => {
     if (!aviso) return;
@@ -91,6 +126,7 @@ export function AdminApp() {
 
   const { sync } = panel;
   const pendientes = sync.archivosPendientes + sync.hojasPendientes;
+  const enCurso = corrida?.estado === 'en-curso';
 
   return (
     <>
@@ -112,21 +148,40 @@ export function AdminApp() {
               ? 'Aún no se ha hecho la primera sincronización. Las evidencias quedarán en la carpeta MGB/Proyecto1 de Drive.'
               : pendientes === 0
               ? 'Todo está al día en Drive (carpeta MGB/Proyecto1).'
-              : `Pendientes por llevar a Drive: ${sync.archivosPendientes} archivo(s) y ${sync.hojasPendientes} hoja(s) de Excel. Se sincronizan solos cada 30 minutos.`}
+              : `Pendientes por llevar a Drive: ${sync.archivosPendientes} archivo(s) y ${sync.hojasPendientes} hoja(s) de Excel.`}
           </p>
+          {enCurso && (
+            <div className="alert info"><span className="spinner" /> Sincronizando con Google Drive… (tarda cerca de un minuto)</div>
+          )}
+          {corrida?.estado === 'sin-configurar' && (
+            <p className="small muted">El botón de sincronizar aún no está conectado a GitHub. Mientras tanto, se sincroniza sola cada hora.</p>
+          )}
           <div className="actions">
-            {sync.urlAcciones && (
-              <a className="btn secondary" href={sync.urlAcciones} target="_blank" rel="noopener">Sincronizar ahora (GitHub)</a>
+            <button type="button" disabled={!!ocupado || enCurso || corrida?.estado === 'sin-configurar'} onClick={sincronizarAhora}>
+              {ocupado === 'sync' || enCurso ? <><span className="spinner" /> Sincronizando…</> : 'Sincronizar ahora'}
+            </button>
+            {confirmar === 'reenviar' ? (
+              <>
+                <Btn ocupado={ocupado} id="reenviar" texto="Sí, reenviar todo" onClick={() => {
+                  setConfirmar('');
+                  void accion('reenviar', async () => {
+                    await api('/api/admin/reenviar', {});
+                    setPanel(await api<Panel>('/api/admin/residentes'));
+                    setAviso('Se están reenviando todas las carpetas y hojas a Drive.');
+                    seguirSync(1);
+                  });
+                }} />
+                <button type="button" className="secondary" onClick={() => setConfirmar('')}>Cancelar</button>
+              </>
+            ) : (
+              <Btn ocupado={ocupado} id="reenviar" texto="Reenviar carpetas y hojas" clase="secondary" onClick={() => setConfirmar('reenviar')} />
             )}
-            <Btn ocupado={ocupado} id="reenviar" texto="Reenviar carpetas y hojas" clase="secondary" onClick={() => {
-              if (!window.confirm('Se volverán a crear en Drive todas las carpetas y hojas de Excel en la próxima sincronización. ¿Continuar?')) return;
-              void accion('reenviar', async () => {
-                await api('/api/admin/reenviar', {});
-                setPanel(await api<Panel>('/api/admin/residentes'));
-                setAviso('Listo: se reenviarán en la próxima sincronización.');
-              });
-            }} />
           </div>
+          {confirmar === 'reenviar' && (
+            <p className="small muted" style={{ marginTop: 8 }}>
+              Vuelve a crear en Drive todas las carpetas y hojas de Excel (útil si se borró algo en Drive). Los archivos ya enviados no se duplican.
+            </p>
+          )}
         </section>
 
         <section className="card">
@@ -180,17 +235,27 @@ export function AdminApp() {
                       <td>{r.planSubido ? 'Cargado' : 'Pendiente'}</td>
                       <td>{r.sesionesCompletas} completas{r.sesionEnCurso ? ` · en curso: ${r.sesionEnCurso}` : ''}</td>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        <button type="button" className="secondary mini" disabled={!!ocupado} title={r.carpeta}
-                          onClick={() => {
-                            const clave = window.prompt(`Nueva contraseña para ${r.nombre} (mínimo 6 caracteres):`);
-                            if (!clave) return;
+                        {claveDe === r.usuario ? (
+                          <form style={{ display: 'flex', gap: 6 }} onSubmit={(e) => {
+                            e.preventDefault();
+                            const clave = String(new FormData(e.currentTarget).get('clave'));
                             void accion('clave', async () => {
                               await api('/api/admin/clave', { usuario: r.usuario, clave });
+                              setClaveDe('');
                               setAviso(`Contraseña de ${r.nombre} actualizada.`);
                             });
                           }}>
-                          Restablecer clave
-                        </button>
+                            <input type="text" name="clave" placeholder="nueva (mín. 6)" autoFocus required
+                              style={{ minHeight: 32, padding: '4px 8px', width: 140 }} />
+                            <button type="submit" className="mini" disabled={!!ocupado}>Guardar</button>
+                            <button type="button" className="secondary mini" onClick={() => setClaveDe('')}>×</button>
+                          </form>
+                        ) : (
+                          <button type="button" className="secondary mini" disabled={!!ocupado} title={r.carpeta}
+                            onClick={() => setClaveDe(r.usuario)}>
+                            Restablecer clave
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

@@ -5,7 +5,7 @@
 # Deja funcionando:
 #   · la app en Vercel (con base de datos Neon y almacenamiento Blob),
 #   · la conexión con Google Drive mediante rclone (sin consola de Google Cloud),
-#   · la sincronización automática cada 30 minutos en GitHub Actions.
+#   · la sincronización automática con GitHub Actions (cada hora y al cerrar cada sesión).
 # Las contraseñas y claves se escriben o generan aquí mismo; nunca se muestran en pantalla.
 
 set -euo pipefail
@@ -158,8 +158,8 @@ paso 8 "Sincronización automática con Google Drive"
 rclone config show "$REMOTO" | gh secret set RCLONE_CONF --repo "$REPO" >/dev/null
 printf '%s' "$SYNC_TOKEN" | gh secret set SYNC_TOKEN --repo "$REPO" >/dev/null
 gh variable set APP_URL --repo "$REPO" --body "$APP_URL" >/dev/null
-gh workflow run sincronizar.yml --repo "$REPO" >/dev/null 2>&1 || aviso "La primera sincronización arrancará sola en los próximos 30 minutos."
-ok "Se sincroniza cada 30 minutos (primera corrida lanzada ahora)"
+gh workflow run sincronizar.yml --repo "$REPO" >/dev/null 2>&1 || aviso "La primera sincronización arrancará sola dentro de la próxima hora."
+ok "Sincronización automática activada (primera corrida lanzada ahora)"
 
 printf '\n\033[1;32m¡Listo!\033[0m\n'
 info "App de residentes:   $APP_URL"

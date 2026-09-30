@@ -10,6 +10,7 @@ export function QrSesion(props: { numero: number; url: string; asistentes: numbe
   const [asistentes, setAsistentes] = useState(props.asistentes);
   const [grande, setGrande] = useState(false);
   const [copiado, setCopiado] = useState(false);
+  const [verEnlace, setVerEnlace] = useState(false);
 
   useEffect(() => {
     QRCode.toDataURL(props.url, { width: 800, margin: 2, errorCorrectionLevel: 'M' }).then(setImagen);
@@ -26,7 +27,7 @@ export function QrSesion(props: { numero: number; url: string; asistentes: numbe
     try {
       await navigator.clipboard.writeText(props.url);
     } catch {
-      window.prompt('Copie el enlace:', props.url);
+      setVerEnlace(true); // sin acceso al portapapeles: se muestra el enlace para copiarlo a mano
       return;
     }
     setCopiado(true);
@@ -51,6 +52,9 @@ export function QrSesion(props: { numero: number; url: string; asistentes: numbe
           <a className="btn secondary" href={imagen} download={`QR Sesión ${props.numero}.png`}>Descargar QR</a>
           <button type="button" className="secondary" onClick={copiar}>{copiado ? '¡Copiado!' : 'Copiar enlace'}</button>
         </div>
+        {verEnlace && (
+          <input type="text" readOnly value={props.url} autoFocus onFocus={(e) => e.currentTarget.select()} style={{ marginTop: 12 }} />
+        )}
       </div>
       <div className="actions end">
         <button type="button" onClick={props.onContinuar}>Continuar a la bitácora →</button>

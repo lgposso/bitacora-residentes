@@ -36,13 +36,14 @@ Al final le muestra la dirección de la app. Si algo falla, puede volver a ejecu
 | Residente | `<app>` | Sube su plan de clase (la primera vez) y en cada sesión: QR → bitácora → fotos → material → finalizar. |
 | Estudiantes | Escanean el QR | Registran nombre, correo y semestre. |
 
-Las evidencias llegan a Drive **cada 30 minutos**. Para no esperar: en `/admin`, botón **Sincronizar ahora (GitHub)** → **Run workflow**.
+Las evidencias llegan a Drive **automáticamente cuando el residente finaliza la sesión** (en cerca de un minuto), y además cada hora. Para llevar todo lo pendiente en el momento: en `/admin`, botón **Sincronizar ahora**.
 
 ## Cómo funciona
 
 - La app (Next.js en Vercel) guarda los datos en Neon (Postgres) y los archivos de forma temporal en Vercel Blob (privado).
-- Cada 30 minutos, GitHub Actions ejecuta `sync/sincronizar.py`, que pide a la app lo pendiente, arma las carpetas y los Excel, y los copia a Drive con **rclone**. Luego la app borra las copias temporales.
-- rclone usa su propia autorización de Google: no hace falta la consola de Google Cloud. Solo puede ver en Drive lo que él mismo creó.
+- Al cerrar cada sesión, con **Sincronizar ahora** y cada hora, GitHub Actions ejecuta `sync/sincronizar.py`, que pide a la app lo pendiente, arma las carpetas y los Excel, y los copia a Drive con **rclone**. Luego la app borra las copias temporales.
+- rclone usa una llave propia de Google (proyecto "Bitacora MGB", cliente "rclone bitacora"; se cambia con `./llave-propia.sh`). Solo puede ver en Drive lo que él mismo creó.
+- El botón **Sincronizar ahora** usa un token de GitHub (`GITHUB_TOKEN` en Vercel) limitado a este repositorio; se configura con `./boton-sincronizar.sh`.
 
 ## Desarrollo
 

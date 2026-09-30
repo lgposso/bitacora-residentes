@@ -21,6 +21,7 @@ export function ResidenteApp() {
   const [subiendo, setSubiendo] = useState(false);
   const [guardados, setGuardados] = useState(0);
   const [sesionCerrada, setSesionCerrada] = useState(0);
+  const [confirmarFin, setConfirmarFin] = useState(false);
 
   const mostrar = useCallback((v: Vista) => {
     setVista(v);
@@ -168,17 +169,23 @@ export function ResidenteApp() {
                   onClick={() => accion(async () => aplicar(await api<EstadoResidente>('/api/fotos/terminar', {})))}>
                   {ocupado ? <><span className="spinner" /> Guardando…</> : 'Continuar a material utilizado →'}
                 </button>
-              ) : (
-                <button type="button" disabled={ocupado || subiendo || guardados < 1}
-                  onClick={() => {
-                    if (!window.confirm('¿Finalizar la sesión? El código QR dejará de recibir asistencia.')) return;
-                    void accion(async () => {
+              ) : confirmarFin ? (
+                <>
+                  <span className="small muted" style={{ alignSelf: 'center' }}>El QR dejará de recibir asistencia.</span>
+                  <button type="button" className="secondary" disabled={ocupado} onClick={() => setConfirmarFin(false)}>Cancelar</button>
+                  <button type="button" disabled={ocupado}
+                    onClick={() => accion(async () => {
                       const r = await api<{ sesionCerrada: number }>('/api/sesion/terminar', {});
+                      setConfirmarFin(false);
                       setSesionCerrada(r.sesionCerrada);
                       mostrar('fin');
-                    });
-                  }}>
-                  {ocupado ? <><span className="spinner" /> Cerrando sesión…</> : 'Finalizar sesión'}
+                    })}>
+                    {ocupado ? <><span className="spinner" /> Cerrando sesión…</> : 'Sí, finalizar'}
+                  </button>
+                </>
+              ) : (
+                <button type="button" disabled={ocupado || subiendo || guardados < 1} onClick={() => setConfirmarFin(true)}>
+                  Finalizar sesión
                 </button>
               )}
             </div>

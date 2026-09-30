@@ -5,12 +5,7 @@ import { crearResidente, estadoSync, listarResidentes } from '@/lib/servicio';
 
 async function panel(req: Request) {
   const db = await obtenerDb();
-  const repo = process.env.GITHUB_REPO;
-  return {
-    residentes: await listarResidentes(db),
-    sync: { ...(await estadoSync(db)), urlAcciones: repo ? `https://github.com/${repo}/actions/workflows/sincronizar.yml` : null },
-    urlApp: urlApp(req)
-  };
+  return { residentes: await listarResidentes(db), sync: await estadoSync(db), urlApp: urlApp(req) };
 }
 
 export const GET = manejar(async (req) => {

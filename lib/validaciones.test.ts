@@ -76,13 +76,15 @@ describe('validarBitacora', () => {
 });
 
 test('validarAsistencia', () => {
-  const ok = validarAsistencia({ nombre: ' Ana  Pérez ', correo: 'ANA@Uni.edu.co ', semestre: '8', autoriza: true });
+  const ok = validarAsistencia({ nombre: ' Ana  Pérez ', correo: 'ANA@Uni.edu.co ', universidad: ' Universidad  del Valle ', semestre: '8', autoriza: true });
   expect(ok.errores).toEqual([]);
   expect(ok.datos.nombre).toBe('Ana Pérez');
   expect(ok.datos.correo).toBe('ana@uni.edu.co');
+  expect(ok.datos.universidad).toBe('Universidad del Valle');
 
-  const mal = validarAsistencia({ nombre: '', correo: 'no-es-correo', semestre: '5', autoriza: false });
-  expect(mal.errores).toHaveLength(4);
+  const mal = validarAsistencia({ nombre: '', correo: 'no-es-correo', universidad: ' ', semestre: '5', autoriza: false });
+  expect(mal.errores).toHaveLength(5);
+  expect(mal.errores).toContain('Escriba su universidad.');
 });
 
 test('validarPlan acepta solo doc, docx, xls, xlsx, pdf', () => {

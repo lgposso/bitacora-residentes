@@ -129,11 +129,13 @@ export function validarAsistencia(input: any) {
   const datos = {
     nombre: texto(i.nombre).replace(/\s+/g, ' '),
     correo: texto(i.correo).toLowerCase(),
+    universidad: texto(i.universidad).replace(/\s+/g, ' '),
     semestre: texto(i.semestre),
     autoriza: i.autoriza === true
   };
   if (datos.nombre.length < 3) errores.push('Escriba sus nombres y apellidos.');
   if (!esCorreo(datos.correo)) errores.push('El correo electrónico no es válido.');
+  if (datos.universidad.length < 2) errores.push('Escriba su universidad.');
   if (!enLista(SEMESTRES, datos.semestre)) errores.push('Seleccione su semestre.');
   if (!datos.autoriza) errores.push('Debe autorizar el tratamiento de sus datos para registrar la asistencia.');
   return { errores, datos };

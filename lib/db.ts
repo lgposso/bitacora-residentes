@@ -65,6 +65,8 @@ export const ESQUEMA = [
     actualizado timestamptz NOT NULL DEFAULT now(),
     UNIQUE (sesion_id, correo)
   )`,
+  // Agregada después de publicar: las bases existentes reciben la columna (registros previos quedan vacíos).
+  `ALTER TABLE asistencias ADD COLUMN IF NOT EXISTS universidad text NOT NULL DEFAULT ''`,
   // ruta = destino en Google Drive. blob_url = copia temporal hasta sincronizar.
   `CREATE TABLE IF NOT EXISTS archivos (
     id serial PRIMARY KEY,

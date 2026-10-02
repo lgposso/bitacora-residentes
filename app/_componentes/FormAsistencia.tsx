@@ -17,6 +17,7 @@ export function FormAsistencia({ token }: { token: string }) {
     const datos = {
       nombre: String(f.get('nombre') ?? ''),
       correo: String(f.get('correo') ?? ''),
+      universidad: String(f.get('universidad') ?? ''),
       semestre: String(f.get('semestre') ?? ''),
       autoriza: f.get('autoriza') === 'on'
     };
@@ -51,8 +52,10 @@ export function FormAsistencia({ token }: { token: string }) {
           <input type="text" name="nombre" autoComplete="name" required /></label>
         <label className="field"><span>2. Correo electrónico</span>
           <input type="email" name="correo" autoComplete="email" inputMode="email" autoCapitalize="none" autoCorrect="off" required /></label>
+        <label className="field"><span>3. Universidad</span>
+          <input type="text" name="universidad" autoComplete="organization" required /></label>
         <fieldset>
-          <legend>3. Semestre</legend>
+          <legend>4. Semestre</legend>
           <div className="choices">
             {SEMESTRES.map((s) => (
               <label key={s}><input type="radio" name="semestre" value={s} />{s}</label>
@@ -63,7 +66,7 @@ export function FormAsistencia({ token }: { token: string }) {
           <label className="bloque">
             <input type="checkbox" name="autoriza" />
             <span className="small">
-              Autorizo el tratamiento de mis datos personales (nombre, correo y semestre) con el fin exclusivo de
+              Autorizo el tratamiento de mis datos personales (nombre, correo, universidad y semestre) con el fin exclusivo de
               registrar mi asistencia a esta actividad académica, conforme a la Ley 1581 de 2012.
             </span>
           </label>

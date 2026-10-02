@@ -77,6 +77,7 @@ export const ASISTENCIA_ENCABEZADOS = [
   'Fecha y hora',
   'Nombres y apellidos',
   'Correo electrónico',
+  'Universidad',
   'Semestre',
   'Autoriza tratamiento de datos'
 ];

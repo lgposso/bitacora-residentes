@@ -30,7 +30,8 @@ const bitacora = {
   tema: 'Manejo de sepsis', estrategias: ['Caso clínico', 'Gamificación'], evaluaciones: ['Rúbrica', 'Estación ECOE']
 };
 
-const estudiante = (nombre: string, correo: string, semestre = '8') => ({ nombre, correo, semestre, autoriza: true });
+const estudiante = (nombre: string, correo: string, semestre = '8', universidad = 'Universidad del Valle') =>
+  ({ nombre, correo, universidad, semestre, autoriza: true });
 
 async function residenteConPlan(usuario = 'lgomez', nombre = 'Laura Gómez', programa = 'Pediatría') {
   await S.crearResidente(ctx, { nombre, programa, usuario, clave: 'secreta1' });
@@ -169,7 +170,7 @@ describe('sincronización con Drive', () => {
     ]);
     const asis = p.hojas.find((h) => h.ruta === `${base}/Evidencia Sesión 1/Asistencia Sesión 1.xlsx`)!;
     expect(asis.filas[0]).toEqual(ASISTENCIA_ENCABEZADOS);
-    expect(asis.filas[1].slice(1)).toEqual(['Ana Pérez', 'ana@u.edu.co', '8', 'Sí']);
+    expect(asis.filas[1].slice(1)).toEqual(['Ana Pérez', 'ana@u.edu.co', 'Universidad del Valle', '8', 'Sí']);
 
     // Un cambio que llega mientras se sincroniza no se pierde (versiones)
     await S.registrarAsistencia(ctx, token, estudiante('Juan Ruiz', 'juan@u.edu.co'));
@@ -209,5 +210,31 @@ describe('sincronización con Drive', () => {
   test('ignora datos basura en la confirmación', async () => {
     await expect(S.confirmarSync(ctx, { archivos: ['x', null] as unknown as number[], bitacoras: [{ id: 'a' }] as never }))
       .resolves.toEqual({ archivos: 0, borrados: 0 });
+  });
+});
+
+describe('migración', () => {
+  test('una base creada antes de existir "universidad" recibe la columna sin perder registros', async () => {
+    const pg = new PGlite();
+    const db = dbPglite(pg);
+    // Esquema tal como estaba publicado (asistencias sin universidad).
+    await asegurarEsquema(db);
+    await db.query('ALTER TABLE asistencias DROP COLUMN universidad');
+    ctx = { db, almacen, appUrl: 'https://app.test' };
+    const id = await residenteConPlan();
+    const token = (await S.obtenerEstado(ctx, id)).sesion!.urlAsistencia.split('/asistencia/')[1];
+    const [s] = await db.query<{ id: number }>('SELECT id FROM sesiones');
+    await db.query("INSERT INTO asistencias (sesion_id, nombre, correo, semestre) VALUES ($1, 'Antes Uno', 'antes@u.co', '7')", [s.id]);
+
+    await asegurarEsquema(db); // lo que hace la app al arrancar con la versión nueva
+    await asegurarEsquema(db); // y es idempotente
+
+    await S.registrarAsistencia(ctx, token, estudiante('Después Dos', 'despues@u.co', '9', 'Universidad del Cauca'));
+    const filas = (await S.pendientesSync(db)).hojas.find((h) => h.ruta.endsWith('Asistencia Sesión 1.xlsx'))!.filas;
+    expect(filas.map((f) => f.slice(1, 5))).toEqual([
+      ['Nombres y apellidos', 'Correo electrónico', 'Universidad', 'Semestre'],
+      ['Antes Uno', 'antes@u.co', '', '7'],
+      ['Después Dos', 'despues@u.co', 'Universidad del Cauca', '9']
+    ]);
   });
 });

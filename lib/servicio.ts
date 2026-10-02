@@ -412,11 +412,11 @@ export async function registrarAsistencia(ctx: Ctx, token: string, formulario: u
   if (s.estado === 'cerrada') throw new ErrorUsuario('Esta sesión ya fue cerrada y no recibe más registros.', 409);
   const d = v.datos;
   const [f] = await ctx.db.query<{ actualizado: boolean }>(
-    `INSERT INTO asistencias (sesion_id, nombre, correo, semestre) VALUES ($1, $2, $3, $4)
+    `INSERT INTO asistencias (sesion_id, nombre, correo, universidad, semestre) VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (sesion_id, correo) DO UPDATE
-       SET nombre = EXCLUDED.nombre, semestre = EXCLUDED.semestre, actualizado = now()
+       SET nombre = EXCLUDED.nombre, universidad = EXCLUDED.universidad, semestre = EXCLUDED.semestre, actualizado = now()
      RETURNING (creado <> actualizado) AS actualizado`,
-    [s.id, d.nombre, d.correo, d.semestre]
+    [s.id, d.nombre, d.correo, d.universidad, d.semestre]
   );
   await marcarAsistencia(ctx.db, s.id);
   // La bitácora muestra el número de asistentes: si ya se envió, también cambia.
@@ -480,10 +480,13 @@ async function filasBitacora(db: Db, residenteId: number): Promise<Celda[][]> {
 }
 
 async function filasAsistencia(db: Db, sesionId: number): Promise<Celda[][]> {
-  const filas = await db.query<{ nombre: string; correo: string; semestre: string; actualizado: Date }>(
-    'SELECT nombre, correo, semestre, actualizado FROM asistencias WHERE sesion_id = $1 ORDER BY id', [sesionId]
+  const filas = await db.query<{ nombre: string; correo: string; universidad: string; semestre: string; actualizado: Date }>(
+    'SELECT nombre, correo, universidad, semestre, actualizado FROM asistencias WHERE sesion_id = $1 ORDER BY id', [sesionId]
   );
-  return [ASISTENCIA_ENCABEZADOS, ...filas.map((a) => [fechaHora(a.actualizado), a.nombre, a.correo, a.semestre, 'Sí'])];
+  return [
+    ASISTENCIA_ENCABEZADOS,
+    ...filas.map((a) => [fechaHora(a.actualizado), a.nombre, a.correo, a.universidad, a.semestre, 'Sí'])
+  ];
 }
 
 /** Todo lo que falta llevar a Google Drive (por lotes). */

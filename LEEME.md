@@ -32,8 +32,8 @@ Al final le muestra la dirección de la app. Si algo falla, puede volver a ejecu
 
 | Quién | Dónde | Qué hace |
 |---|---|---|
-| Administradora | `<app>/admin` | Crea residentes (nombre, programa, usuario y número de documento, que es su contraseña), ve el avance, cambia el documento o elimina residentes. |
-| Residente | `<app>` | Sube su plan de clase (la primera vez) y en cada sesión: QR → bitácora → fotos → material → finalizar. |
+| Administradora | `<app>/admin` | Crea residentes (nombre, programa, correo electrónico y número de documento, que es su contraseña), ve el avance, cambia el documento o elimina residentes. |
+| Residente | `<app>` (entra con su correo y su número de documento) | Sube su plan de clase (la primera vez) y en cada sesión: QR → bitácora → fotos → material → finalizar. |
 | Estudiantes | Escanean el QR | Registran nombre, correo, universidad y semestre. |
 
 Las evidencias llegan a Drive **automáticamente cuando el residente finaliza la sesión** (en cerca de un minuto), y además cada hora. Para llevar todo lo pendiente en el momento: en `/admin`, botón **Sincronizar ahora**.

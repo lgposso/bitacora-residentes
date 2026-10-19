@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  calcularDuracion, formatDuracion, nombreSeguro, normalizarDocumento, normalizarUsuario, parseHora,
+  calcularDuracion, formatDuracion, nombreSeguro, normalizarCorreo, normalizarDocumento, parseHora,
   validarAsistencia, validarBitacora, validarPlan
 } from './validaciones';
 
@@ -94,10 +94,11 @@ test('validarPlan acepta solo doc, docx, xls, xlsx, pdf', () => {
   expect(() => validarPlan('sinextension')).toThrow(/Formato/);
 });
 
-test('normalizarUsuario', () => {
-  expect(normalizarUsuario('  JPerez ')).toBe('jperez');
-  expect(() => normalizarUsuario('a b')).toThrow(/usuario/i);
-  expect(() => normalizarUsuario('ab')).toThrow(/usuario/i);
+test('normalizarCorreo', () => {
+  expect(normalizarCorreo('  Juan.Perez@Correo.COM ')).toBe('juan.perez@correo.com');
+  for (const malo of ['jperez', 'a b@c.co', 'sin@dominio', '', null]) {
+    expect(() => normalizarCorreo(malo)).toThrow(/correo/i);
+  }
 });
 
 test('nombreSeguro quita caracteres problemáticos', () => {

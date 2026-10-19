@@ -12,7 +12,7 @@ import type { Almacen } from './almacen';
 import type { Db } from './db';
 import { CARPETA_FOTOS, CARPETA_MATERIAL, conSufijo, rutaPrograma, rutaResidente, rutaSesion } from './rutas';
 import {
-  ErrorUsuario, formatDuracion, nombreSeguro, normalizarDocumento, normalizarUsuario, validarAsistencia, validarBitacora,
+  ErrorUsuario, formatDuracion, nombreSeguro, normalizarCorreo, normalizarDocumento, validarAsistencia, validarBitacora,
   validarPlan
 } from './validaciones';
 
@@ -126,12 +126,13 @@ export async function crearResidente(ctx: Ctx, datos: { nombre?: string; program
   if (nombre.length < 3) throw new ErrorUsuario('Escriba el nombre completo del residente.');
   const programa = String(datos.programa ?? '');
   if (!(PROGRAMAS as readonly string[]).includes(programa)) throw new ErrorUsuario('Seleccione un programa.');
-  const usuario = normalizarUsuario(datos.usuario);
+  // El residente ingresa con su correo (se guarda en la columna "usuario").
+  const usuario = normalizarCorreo(datos.usuario);
   const clave = validarClaveNueva(datos.clave);
 
   const [existe] = await ctx.db.query('SELECT 1 FROM residentes WHERE usuario = $1', [usuario]);
-  if (existe) throw new ErrorUsuario(`Ya existe un residente con el usuario "${usuario}".`);
-  // Si ya hay otra carpeta con el mismo nombre en el programa, se distingue con el usuario.
+  if (existe) throw new ErrorUsuario(`Ya existe un residente con el correo "${usuario}".`);
+  // Si ya hay otra carpeta con el mismo nombre en el programa, se distingue con el correo.
   const [homonimo] = await ctx.db.query('SELECT 1 FROM residentes WHERE programa = $1 AND carpeta = $2', [programa, nombre]);
   try {
     await ctx.db.query(
@@ -139,7 +140,7 @@ export async function crearResidente(ctx: Ctx, datos: { nombre?: string; program
       [usuario, nombre, programa, homonimo ? `${nombre} (${usuario})` : nombre, await bcrypt.hash(clave, 10)]
     );
   } catch (e) {
-    if (esDuplicado(e)) throw new ErrorUsuario(`Ya existe un residente con el usuario "${usuario}".`);
+    if (esDuplicado(e)) throw new ErrorUsuario(`Ya existe un residente con el correo "${usuario}".`);
     throw e;
   }
 }
@@ -209,7 +210,7 @@ export async function autenticarResidente(db: Db, usuario: string, clave: string
   const c = String(clave ?? '');
   const escrita = /^[\d\s.-]+$/.test(c) ? c.replace(/[\s.-]/g, '') : c;
   if (!r || !(await bcrypt.compare(escrita, r.clave_hash))) {
-    throw new ErrorUsuario('Usuario o contraseña incorrectos.', 401);
+    throw new ErrorUsuario('Correo o contraseña incorrectos.', 401);
   }
   await limpiarIntentos(db, 'r:' + u);
   return r.id;

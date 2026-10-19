@@ -17,7 +17,7 @@ export const ESQUEMA = [
   )`,
   `CREATE TABLE IF NOT EXISTS residentes (
     id serial PRIMARY KEY,
-    usuario text UNIQUE NOT NULL,
+    usuario text UNIQUE NOT NULL, -- correo electrónico del residente
     nombre text NOT NULL,
     programa text NOT NULL,
     carpeta text NOT NULL,

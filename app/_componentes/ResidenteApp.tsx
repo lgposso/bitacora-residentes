@@ -214,14 +214,14 @@ function Login(props: { ocupado: boolean; onIngresar: (usuario: string, clave: s
   return (
     <section className="card">
       <h1>Bitácora de residentes</h1>
-      <p className="muted">Ingrese con el usuario y la contraseña que le asignaron.</p>
+      <p className="muted">Ingrese con su correo electrónico y su número de documento.</p>
       <form onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
         props.onIngresar(String(f.get('usuario')), String(f.get('clave')));
       }}>
-        <label className="field"><span>Usuario</span>
-          <input type="text" name="usuario" autoComplete="username" autoCapitalize="none" autoCorrect="off" required /></label>
+        <label className="field"><span>Correo electrónico</span>
+          <input type="email" name="usuario" inputMode="email" autoComplete="username" autoCapitalize="none" autoCorrect="off" required /></label>
         <label className="field"><span>Contraseña <small className="muted">(su número de documento)</small></span>
           <input type="password" name="clave" inputMode="numeric" autoComplete="current-password" required /></label>
         <div className="actions">

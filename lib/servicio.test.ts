@@ -33,7 +33,7 @@ const bitacora = {
 const estudiante = (nombre: string, correo: string, semestre = '8', universidad = 'Universidad del Valle') =>
   ({ nombre, correo, universidad, semestre, autoriza: true });
 
-async function residenteConPlan(usuario = 'lgomez', nombre = 'Laura Gómez', programa = 'Pediatría') {
+async function residenteConPlan(usuario = 'laura.gomez@correo.com', nombre = 'Laura Gómez', programa = 'Pediatría') {
   await S.crearResidente(ctx, { nombre, programa, usuario, clave: '1144123456' });
   const id = await S.autenticarResidente(ctx.db, usuario, '1144123456');
   await subir(id, 'plan', 'mi plan.pdf', 'application/pdf');
@@ -45,13 +45,14 @@ describe('flujo del residente', () => {
     // Administradora
     await expect(S.verificarClaveAdmin(ctx.db, 'mala')).rejects.toThrow(/incorrecta/);
     await S.verificarClaveAdmin(ctx.db, 'admin123');
-    await S.crearResidente(ctx, { nombre: 'Laura Gómez', programa: 'Pediatría', usuario: 'LGomez', clave: '1144123456' });
-    await expect(S.crearResidente(ctx, { nombre: 'Otra', programa: 'Pediatría', usuario: 'lgomez', clave: '1144123456' })).rejects.toThrow(/Ya existe/);
-    await expect(S.crearResidente(ctx, { nombre: 'X Y', programa: 'Nada', usuario: 'xy1', clave: '1144123456' })).rejects.toThrow(/programa/);
+    await S.crearResidente(ctx, { nombre: 'Laura Gómez', programa: 'Pediatría', usuario: 'Laura.Gomez@Correo.com', clave: '1144123456' });
+    await expect(S.crearResidente(ctx, { nombre: 'Otra', programa: 'Pediatría', usuario: 'laura.gomez@correo.com', clave: '1144123456' })).rejects.toThrow(/Ya existe/);
+    await expect(S.crearResidente(ctx, { nombre: 'X Y', programa: 'Nada', usuario: 'xy@correo.com', clave: '1144123456' })).rejects.toThrow(/programa/);
+    await expect(S.crearResidente(ctx, { nombre: 'X Y', programa: 'Pediatría', usuario: 'jperez', clave: '1144123456' })).rejects.toThrow(/correo/);
 
     // Login
-    await expect(S.autenticarResidente(ctx.db, 'lgomez', 'mal')).rejects.toThrow(/incorrectos/);
-    const id = await S.autenticarResidente(ctx.db, 'LGOMEZ', '1144123456');
+    await expect(S.autenticarResidente(ctx.db, 'laura.gomez@correo.com', 'mal')).rejects.toThrow(/incorrectos/);
+    const id = await S.autenticarResidente(ctx.db, ' LAURA.GOMEZ@CORREO.COM ', '1144123456');
     let estado = await S.obtenerEstado(ctx, id);
     expect(estado.planSubido).toBe(false);
     expect(estado.sesion).toBeNull();
@@ -70,7 +71,7 @@ describe('flujo del residente', () => {
     const token = estado.sesion!.urlAsistencia.split('/asistencia/')[1];
     expect(estado.sesion!.urlAsistencia).toMatch(/^https:\/\/app\.test\/asistencia\//);
     expect((await S.infoAsistencia(ctx.db, token))?.residente).toBe('Laura Gómez');
-    expect(await S.infoAsistencia(ctx.db, 'no-existe')).toBeNull();
+    expect(await S.infoAsistencia(ctx.db, 'no-existe@correo.com')).toBeNull();
     expect((await S.registrarAsistencia(ctx, token, estudiante('Ana Pérez', 'ana@u.edu.co'))).actualizado).toBe(false);
     await S.registrarAsistencia(ctx, token, estudiante('Juan Ruiz', 'juan@u.edu.co', '10'));
     expect((await S.registrarAsistencia(ctx, token, estudiante('Ana María Pérez', 'ANA@u.edu.co', '9'))).actualizado).toBe(true);
@@ -109,21 +110,21 @@ describe('flujo del residente', () => {
     // Panel admin
     const [fila] = await S.listarResidentes(ctx.db);
     expect(fila).toMatchObject({
-      usuario: 'lgomez', planSubido: true, sesionesCompletas: 1, sesionEnCurso: 2, carpeta: 'MGB/Proyecto1/Pediatría/Laura Gómez'
+      usuario: 'laura.gomez@correo.com', planSubido: true, sesionesCompletas: 1, sesionEnCurso: 2, carpeta: 'MGB/Proyecto1/Pediatría/Laura Gómez'
     });
 
     // Restablecer clave
-    await S.restablecerClave(ctx.db, 'lgomez', '987654321');
-    await expect(S.autenticarResidente(ctx.db, 'lgomez', '1144123456')).rejects.toThrow(/incorrectos/);
-    expect(await S.autenticarResidente(ctx.db, 'lgomez', '987654321')).toBe(id);
+    await S.restablecerClave(ctx.db, 'laura.gomez@correo.com', '987654321');
+    await expect(S.autenticarResidente(ctx.db, 'laura.gomez@correo.com', '1144123456')).rejects.toThrow(/incorrectos/);
+    expect(await S.autenticarResidente(ctx.db, 'laura.gomez@correo.com', '987654321')).toBe(id);
     // Si lo escribe con puntos o espacios, también entra
-    expect(await S.autenticarResidente(ctx.db, 'lgomez', '987.654.321')).toBe(id);
-    await expect(S.restablecerClave(ctx.db, 'lgomez', 'clave123')).rejects.toThrow(/documento/);
+    expect(await S.autenticarResidente(ctx.db, 'laura.gomez@correo.com', '987.654.321')).toBe(id);
+    await expect(S.restablecerClave(ctx.db, 'laura.gomez@correo.com', 'clave123')).rejects.toThrow(/documento/);
   });
 
   test('una subida no puede ir al espacio de otro residente ni a otro paso', async () => {
-    const a = await residenteConPlan('ana1', 'Ana Uno');
-    const b = await residenteConPlan('beto', 'Beto Dos');
+    const a = await residenteConPlan('ana.uno@correo.com', 'Ana Uno');
+    const b = await residenteConPlan('beto.dos@correo.com', 'Beto Dos');
     const { pathname } = await S.prepararSubida(ctx.db, a, { tipo: 'plan', nombre: 'x.pdf', mime: 'application/pdf', bytes: 10 })
       .catch(() => ({ pathname: 'r1/plan/x.pdf' }));
     await expect(S.autorizarSubida(ctx.db, b, 'plan', pathname)).rejects.toThrow();
@@ -140,18 +141,18 @@ describe('flujo del residente', () => {
   });
 
   test('la contraseña es el número de documento (se limpian puntos y espacios)', async () => {
-    await S.crearResidente(ctx, { nombre: 'Doc Prueba', programa: 'Pediatría', usuario: 'doc1', clave: '1.144.123.456' });
-    expect(await S.autenticarResidente(ctx.db, 'doc1', '1144123456')).toBeGreaterThan(0);
-    expect(await S.autenticarResidente(ctx.db, 'doc1', ' 1 144 123 456 ')).toBeGreaterThan(0);
+    await S.crearResidente(ctx, { nombre: 'Doc Prueba', programa: 'Pediatría', usuario: 'doc1@correo.com', clave: '1.144.123.456' });
+    expect(await S.autenticarResidente(ctx.db, 'doc1@correo.com', '1144123456')).toBeGreaterThan(0);
+    expect(await S.autenticarResidente(ctx.db, 'doc1@correo.com', ' 1 144 123 456 ')).toBeGreaterThan(0);
     for (const malo of ['secreta1', '1234', '1234567890123456', '']) {
-      await expect(S.crearResidente(ctx, { nombre: 'Otro Doc', programa: 'Pediatría', usuario: 'doc2', clave: malo }))
+      await expect(S.crearResidente(ctx, { nombre: 'Otro Doc', programa: 'Pediatría', usuario: 'doc2@correo.com', clave: malo }))
         .rejects.toThrow(/documento/);
     }
   });
 
   test('eliminar un residente borra sus sesiones, asistencias y archivos pendientes', async () => {
-    const id = await residenteConPlan('borrar1', 'Para Borrar');
-    const otro = await residenteConPlan('queda1', 'Se Queda');
+    const id = await residenteConPlan('borrar@correo.com', 'Para Borrar');
+    const otro = await residenteConPlan('queda@correo.com', 'Se Queda');
     const token = (await S.obtenerEstado(ctx, id)).sesion!.urlAsistencia.split('/asistencia/')[1];
     await S.registrarAsistencia(ctx, token, estudiante('Ana', 'ana@u.co'));
     await S.enviarBitacora(ctx, id, bitacora);
@@ -159,22 +160,22 @@ describe('flujo del residente', () => {
     await S.obtenerEstado(ctx, otro);
     expect(almacen.archivos.size).toBe(3); // 2 planes + 1 foto
 
-    await expect(S.eliminarResidente(ctx, 'no-existe')).rejects.toThrow(/no encontrado/);
-    expect(await S.eliminarResidente(ctx, 'BORRAR1')).toEqual({ nombre: 'Para Borrar' });
+    await expect(S.eliminarResidente(ctx, 'no-existe@correo.com')).rejects.toThrow(/no encontrado/);
+    expect(await S.eliminarResidente(ctx, 'BORRAR@correo.com')).toEqual({ nombre: 'Para Borrar' });
 
-    expect((await S.listarResidentes(ctx.db)).map((r) => r.usuario)).toEqual(['queda1']);
-    await expect(S.autenticarResidente(ctx.db, 'borrar1', '1144123456')).rejects.toThrow(/incorrectos/);
+    expect((await S.listarResidentes(ctx.db)).map((r) => r.usuario)).toEqual(['queda@correo.com']);
+    await expect(S.autenticarResidente(ctx.db, 'borrar@correo.com', '1144123456')).rejects.toThrow(/incorrectos/);
     expect(await S.infoAsistencia(ctx.db, token)).toBeNull();
     expect(almacen.archivos.size).toBe(1); // solo queda el plan del otro residente
     const p = await S.pendientesSync(ctx.db);
     expect(JSON.stringify(p)).not.toContain('Para Borrar');
     // Su nombre de usuario queda libre otra vez
-    await S.crearResidente(ctx, { nombre: 'Para Borrar', programa: 'Pediatría', usuario: 'borrar1', clave: '55555' });
+    await S.crearResidente(ctx, { nombre: 'Para Borrar', programa: 'Pediatría', usuario: 'borrar@correo.com', clave: '55555' });
   });
 
   test('bloquea tras 10 intentos fallidos', async () => {
-    for (let i = 0; i < 10; i++) await expect(S.autenticarResidente(ctx.db, 'nadie', 'x')).rejects.toThrow(/incorrectos/);
-    await expect(S.autenticarResidente(ctx.db, 'nadie', 'x')).rejects.toThrow(/Demasiados/);
+    for (let i = 0; i < 10; i++) await expect(S.autenticarResidente(ctx.db, 'nadie@correo.com', 'x')).rejects.toThrow(/incorrectos/);
+    await expect(S.autenticarResidente(ctx.db, 'nadie@correo.com', 'x')).rejects.toThrow(/Demasiados/);
   });
 });
 

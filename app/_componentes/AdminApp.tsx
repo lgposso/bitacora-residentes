@@ -196,7 +196,7 @@ export function AdminApp() {
           const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
           void accion('crear', async () => {
             setPanel(await api<Panel>('/api/admin/residentes', f));
-            setAviso(`Residente creado. Entra con el usuario "${f.usuario.trim().toLowerCase()}" y su número de documento como contraseña.`);
+            setAviso(`Residente creado. Entra con su correo "${f.usuario.trim().toLowerCase()}" y su número de documento como contraseña.`);
             form.reset();
           });
         }}>
@@ -210,8 +210,8 @@ export function AdminApp() {
               </select></label>
           </div>
           <div className="row">
-            <label className="field"><span>Usuario</span>
-              <input type="text" name="usuario" autoCapitalize="none" autoCorrect="off" placeholder="ej. jperez" required /></label>
+            <label className="field"><span>Correo electrónico</span>
+              <input type="email" name="usuario" inputMode="email" autoCapitalize="none" autoCorrect="off" placeholder="ej. jperez@correo.com" required /></label>
             <label className="field"><span>Número de documento <small className="muted">(será su contraseña)</small></span>
               <input type="text" name="clave" inputMode="numeric" autoComplete="off" placeholder="solo números, ej. 1144123456" required /></label>
           </div>
@@ -225,7 +225,7 @@ export function AdminApp() {
           ) : (
             <div className="table-scroll">
               <table>
-                <thead><tr><th>Residente</th><th>Programa</th><th>Usuario</th><th>Plan</th><th>Sesiones</th><th /></tr></thead>
+                <thead><tr><th>Residente</th><th>Programa</th><th>Correo</th><th>Plan</th><th>Sesiones</th><th /></tr></thead>
                 <tbody>
                   {panel.residentes.map((r) => (
                     <tr key={r.usuario}>

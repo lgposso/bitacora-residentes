@@ -155,12 +155,11 @@ export function validarPlan(nombre: string) {
   return ext;
 }
 
-export function normalizarUsuario(usuario: unknown) {
-  const u = texto(usuario).toLowerCase();
-  if (!/^[a-z0-9._-]{3,40}$/.test(u)) {
-    throw new ErrorUsuario('El usuario debe tener entre 3 y 40 caracteres: letras, números, punto, guion o guion bajo, sin espacios.');
-  }
-  return u;
+/** Correo electrónico con el que ingresa el residente (en minúsculas, sin espacios). */
+export function normalizarCorreo(correo: unknown) {
+  const c = texto(correo).toLowerCase();
+  if (c.length > 254 || !esCorreo(c)) throw new ErrorUsuario('Escriba un correo electrónico válido.');
+  return c;
 }
 
 /** Número de documento usado como contraseña del residente: sin puntos, espacios ni guiones. */

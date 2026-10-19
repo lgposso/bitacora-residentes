@@ -163,6 +163,15 @@ export function normalizarUsuario(usuario: unknown) {
   return u;
 }
 
+/** Número de documento usado como contraseña del residente: sin puntos, espacios ni guiones. */
+export function normalizarDocumento(documento: unknown) {
+  const d = String(documento ?? '').replace(/[\s.-]/g, '');
+  if (!/^\d{5,15}$/.test(d)) {
+    throw new ErrorUsuario('El número de documento debe tener entre 5 y 15 dígitos (solo números, sin letras).');
+  }
+  return d;
+}
+
 /** Nombre apto para carpetas y archivos de Drive. */
 export function nombreSeguro(nombre: unknown) {
   return texto(nombre)

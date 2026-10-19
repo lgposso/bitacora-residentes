@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  calcularDuracion, formatDuracion, nombreSeguro, normalizarUsuario, parseHora,
+  calcularDuracion, formatDuracion, nombreSeguro, normalizarDocumento, normalizarUsuario, parseHora,
   validarAsistencia, validarBitacora, validarPlan
 } from './validaciones';
 
@@ -103,4 +103,13 @@ test('normalizarUsuario', () => {
 test('nombreSeguro quita caracteres problemáticos', () => {
   expect(nombreSeguro('  Juan / Pérez\\ ')).toBe('Juan - Pérez-');
   expect(nombreSeguro('foto:1?.jpg')).toBe('foto 1 .jpg');
+});
+
+test('normalizarDocumento', () => {
+  expect(normalizarDocumento('1.144.123.456')).toBe('1144123456');
+  expect(normalizarDocumento(' 98 765-432 ')).toBe('98765432');
+  expect(normalizarDocumento('12345')).toBe('12345');
+  for (const malo of ['1234', '1234567890123456', 'CC123456', '', null]) {
+    expect(() => normalizarDocumento(malo)).toThrow(/documento/);
+  }
 });

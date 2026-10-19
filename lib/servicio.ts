@@ -12,7 +12,8 @@ import type { Almacen } from './almacen';
 import type { Db } from './db';
 import { CARPETA_FOTOS, CARPETA_MATERIAL, conSufijo, rutaPrograma, rutaResidente, rutaSesion } from './rutas';
 import {
-  ErrorUsuario, formatDuracion, nombreSeguro, normalizarUsuario, validarAsistencia, validarBitacora, validarPlan
+  ErrorUsuario, formatDuracion, nombreSeguro, normalizarDocumento, normalizarUsuario, validarAsistencia, validarBitacora,
+  validarPlan
 } from './validaciones';
 
 export interface Ctx {
@@ -117,10 +118,8 @@ export async function verificarClaveAdmin(db: Db, clave: string) {
   await limpiarIntentos(db, 'admin');
 }
 
-function validarClaveNueva(clave: unknown) {
-  if (String(clave ?? '').length < 6) throw new ErrorUsuario('La contraseña debe tener al menos 6 caracteres.');
-  return String(clave);
-}
+/** La contraseña de cada residente es su número de documento (la de la administradora no cambia). */
+const validarClaveNueva = normalizarDocumento;
 
 export async function crearResidente(ctx: Ctx, datos: { nombre?: string; programa?: string; usuario?: string; clave?: string }) {
   const nombre = nombreSeguro(datos.nombre);
@@ -174,13 +173,42 @@ export async function restablecerClave(db: Db, usuario: string, clave: string) {
   if (!filas.length) throw new ErrorUsuario('Residente no encontrado.', 404);
 }
 
+/**
+ * Elimina un residente con sus sesiones, asistencias y archivos (en una sola sentencia: todo o nada).
+ * Las copias temporales aún no sincronizadas se borran del almacén. Su carpeta en Drive no se toca.
+ */
+export async function eliminarResidente(ctx: Ctx, usuario: string) {
+  const u = String(usuario ?? '').trim().toLowerCase();
+  const [r] = await ctx.db.query<{ id: number; nombre: string }>('SELECT id, nombre FROM residentes WHERE usuario = $1', [u]);
+  if (!r) throw new ErrorUsuario('Residente no encontrado.', 404);
+  const pendientes = await ctx.db.query<{ blob_url: string }>(
+    `WITH ses AS (SELECT id FROM sesiones WHERE residente_id = $1),
+          asi AS (DELETE FROM asistencias WHERE sesion_id IN (SELECT id FROM ses)),
+          arc AS (DELETE FROM archivos WHERE residente_id = $1 RETURNING blob_url, sincronizado_en),
+          bor AS (DELETE FROM sesiones WHERE residente_id = $1),
+          res AS (DELETE FROM residentes WHERE id = $1)
+     SELECT blob_url FROM arc WHERE sincronizado_en IS NULL`,
+    [r.id]
+  );
+  await limpiarIntentos(ctx.db, 'r:' + u);
+  try {
+    await ctx.almacen.borrar(pendientes.map((p) => p.blob_url));
+  } catch (e) {
+    console.error('No se pudieron borrar copias temporales:', e);
+  }
+  return { nombre: r.nombre };
+}
+
 // ---------- Residente ----------
 
 export async function autenticarResidente(db: Db, usuario: string, clave: string) {
   const u = String(usuario ?? '').trim().toLowerCase();
   await registrarIntento(db, 'r:' + u);
   const [r] = await db.query<Residente>('SELECT * FROM residentes WHERE usuario = $1', [u]);
-  if (!r || !(await bcrypt.compare(String(clave ?? ''), r.clave_hash))) {
+  // Si escribe el documento con puntos o espacios ("1.144.123.456"), se compara sin ellos.
+  const c = String(clave ?? '');
+  const escrita = /^[\d\s.-]+$/.test(c) ? c.replace(/[\s.-]/g, '') : c;
+  if (!r || !(await bcrypt.compare(escrita, r.clave_hash))) {
     throw new ErrorUsuario('Usuario o contraseña incorrectos.', 401);
   }
   await limpiarIntentos(db, 'r:' + u);

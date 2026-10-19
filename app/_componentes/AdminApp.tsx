@@ -196,7 +196,7 @@ export function AdminApp() {
           const f = Object.fromEntries(new FormData(form)) as Record<string, string>;
           void accion('crear', async () => {
             setPanel(await api<Panel>('/api/admin/residentes', f));
-            setAviso(`Residente creado. Entréguele: usuario "${f.usuario.trim().toLowerCase()}" y la contraseña asignada.`);
+            setAviso(`Residente creado. Entra con el usuario "${f.usuario.trim().toLowerCase()}" y su número de documento como contraseña.`);
             form.reset();
           });
         }}>
@@ -212,8 +212,8 @@ export function AdminApp() {
           <div className="row">
             <label className="field"><span>Usuario</span>
               <input type="text" name="usuario" autoCapitalize="none" autoCorrect="off" placeholder="ej. jperez" required /></label>
-            <label className="field"><span>Contraseña</span>
-              <input type="text" name="clave" placeholder="mínimo 6 caracteres" required /></label>
+            <label className="field"><span>Número de documento <small className="muted">(será su contraseña)</small></span>
+              <input type="text" name="clave" inputMode="numeric" autoComplete="off" placeholder="solo números, ej. 1144123456" required /></label>
           </div>
           <div className="actions"><Btn ocupado={ocupado} id="crear" texto="Crear residente" tipo="submit" /></div>
         </form>
@@ -242,19 +242,40 @@ export function AdminApp() {
                             void accion('clave', async () => {
                               await api('/api/admin/clave', { usuario: r.usuario, clave });
                               setClaveDe('');
-                              setAviso(`Contraseña de ${r.nombre} actualizada.`);
+                              setAviso(`Listo: ${r.nombre} ahora entra con ese número de documento.`);
                             });
                           }}>
-                            <input type="text" name="clave" placeholder="nueva (mín. 6)" autoFocus required
+                            <input type="text" name="clave" inputMode="numeric" placeholder="nº de documento" autoFocus required
                               style={{ minHeight: 32, padding: '4px 8px', width: 140 }} />
                             <button type="submit" className="mini" disabled={!!ocupado}>Guardar</button>
                             <button type="button" className="secondary mini" onClick={() => setClaveDe('')}>×</button>
                           </form>
+                        ) : confirmar === 'eliminar:' + r.usuario ? (
+                          <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                            <span className="small">¿Eliminar a {r.nombre}?</span>
+                            <button type="button" className="mini" disabled={!!ocupado} style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }}
+                              onClick={() => void accion('eliminar', async () => {
+                                await api('/api/admin/eliminar', { usuario: r.usuario });
+                                setConfirmar('');
+                                setPanel(await api<Panel>('/api/admin/residentes'));
+                                setAviso(`${r.nombre} fue eliminado. Su carpeta en Google Drive no se borra; elimínela allí si ya no la necesita.`);
+                              })}>
+                              {ocupado === 'eliminar' ? 'Eliminando…' : 'Sí, eliminar'}
+                            </button>
+                            <button type="button" className="secondary mini" onClick={() => setConfirmar('')}>Cancelar</button>
+                          </span>
                         ) : (
-                          <button type="button" className="secondary mini" disabled={!!ocupado} title={r.carpeta}
-                            onClick={() => setClaveDe(r.usuario)}>
-                            Restablecer clave
-                          </button>
+                          <span style={{ display: 'inline-flex', gap: 6 }}>
+                            <button type="button" className="secondary mini" disabled={!!ocupado} title={r.carpeta}
+                              onClick={() => setClaveDe(r.usuario)}>
+                              Restablecer clave
+                            </button>
+                            <button type="button" className="secondary mini" disabled={!!ocupado}
+                              style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                              onClick={() => setConfirmar('eliminar:' + r.usuario)}>
+                              Eliminar
+                            </button>
+                          </span>
                         )}
                       </td>
                     </tr>

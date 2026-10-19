@@ -222,8 +222,8 @@ function Login(props: { ocupado: boolean; onIngresar: (usuario: string, clave: s
       }}>
         <label className="field"><span>Usuario</span>
           <input type="text" name="usuario" autoComplete="username" autoCapitalize="none" autoCorrect="off" required /></label>
-        <label className="field"><span>Contraseña</span>
-          <input type="password" name="clave" autoComplete="current-password" required /></label>
+        <label className="field"><span>Contraseña <small className="muted">(su número de documento)</small></span>
+          <input type="password" name="clave" inputMode="numeric" autoComplete="current-password" required /></label>
         <div className="actions">
           <button type="submit" disabled={props.ocupado}>
             {props.ocupado ? <><span className="spinner" /> Ingresando…</> : 'Ingresar'}

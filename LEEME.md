@@ -32,7 +32,7 @@ Al final le muestra la dirección de la app. Si algo falla, puede volver a ejecu
 
 | Quién | Dónde | Qué hace |
 |---|---|---|
-| Administradora | `<app>/admin` | Crea residentes (nombre, programa, usuario, contraseña), ve el avance y restablece contraseñas. |
+| Administradora | `<app>/admin` | Crea residentes (nombre, programa, usuario y número de documento, que es su contraseña), ve el avance, cambia el documento o elimina residentes. |
 | Residente | `<app>` | Sube su plan de clase (la primera vez) y en cada sesión: QR → bitácora → fotos → material → finalizar. |
 | Estudiantes | Escanean el QR | Registran nombre, correo, universidad y semestre. |
 

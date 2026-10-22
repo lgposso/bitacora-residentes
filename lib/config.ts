@@ -19,6 +19,8 @@ export const ESCENARIOS = [
   'Otro'
 ] as const;
 
+export const MODALIDADES = ['Individual', 'Grupal'] as const;
+
 export const POBLACIONES = ['Estudiantes de medicina', 'Internos', 'Ambos'] as const;
 
 export const ESTRATEGIAS = [
@@ -33,7 +35,8 @@ export const ESTRATEGIAS = [
   'Seminario',
   'Presentación de caso',
   'Gamificación',
-  'Herramientas digitales'
+  'Herramientas digitales',
+  'Otro'
 ] as const;
 
 export const EVALUACIONES = [
@@ -44,7 +47,8 @@ export const EVALUACIONES = [
   'Demostración práctica',
   'Reporte de caso clínico',
   'Gamificación',
-  'Herramientas digitales'
+  'Herramientas digitales',
+  'Otro'
 ] as const;
 
 export const SEMESTRES = ['6', '7', '8', '9', '10', '11', '12'] as const;
@@ -58,6 +62,8 @@ export const ZONA_HORARIA = 'America/Bogota';
 
 export const BITACORA_ENCABEZADOS = [
   '# Sesión',
+  'Modalidad',
+  'Residentes participantes',
   'Fecha',
   'Hora inicio',
   'Hora final',

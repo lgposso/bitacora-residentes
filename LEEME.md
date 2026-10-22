@@ -34,6 +34,7 @@ Al final le muestra la dirección de la app. Si algo falla, puede volver a ejecu
 |---|---|---|
 | Administradora | `<app>/admin` | Crea residentes (nombre, programa, correo electrónico y número de documento, que es su contraseña), ve el avance, cambia el documento o elimina residentes. |
 | Residente | `<app>` (entra con su correo y su número de documento) | Sube su plan de clase (la primera vez) y en cada sesión: QR → bitácora → fotos → material → finalizar. |
+| Residente (sesión grupal) | En la bitácora elige **Grupal** y marca a sus compañeros (solo de su mismo programa) | Al enviar, cada compañero recibe la sesión completa con su propio número: bitácora, asistencia, fotos y material. |
 | Estudiantes | Escanean el QR | Registran nombre, correo, universidad y semestre. |
 
 Las evidencias llegan a Drive **automáticamente cuando el residente finaliza la sesión** (en cerca de un minuto), y además cada hora. Para llevar todo lo pendiente en el momento: en `/admin`, botón **Sincronizar ahora**.

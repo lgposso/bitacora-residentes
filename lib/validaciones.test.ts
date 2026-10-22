@@ -5,6 +5,10 @@ import {
 } from './validaciones';
 
 const bitacoraValida = () => ({
+  modalidad: 'Individual',
+  companeros: [] as unknown[],
+  estrategiasOtro: '',
+  evaluacionesOtro: '',
   fecha: '2026-09-29',
   horaInicio: '07:00',
   horaFinal: '08:30',
@@ -67,6 +71,27 @@ describe('validarBitacora', () => {
   test('rechaza fecha inválida', () => {
     const d = { ...bitacoraValida(), fecha: '2026-02-30' };
     expect(validarBitacora(d).errores.some((e) => /fecha/i.test(e))).toBe(true);
+  });
+
+  test('modalidad: obligatoria; grupal exige compañeros (ids enteros, sin repetir)', () => {
+    expect(validarBitacora({ ...bitacoraValida(), modalidad: '' }).errores).toContain('Seleccione si la sesión fue individual o grupal.');
+    expect(validarBitacora({ ...bitacoraValida(), modalidad: 'Grupal' }).errores).toContain('Seleccione al menos un compañero.');
+    const r = validarBitacora({ ...bitacoraValida(), modalidad: 'Grupal', companeros: [3, 3, '7', 'x', 2.5] });
+    expect(r.errores).toEqual([]);
+    expect(r.datos.companeros).toEqual([3, 7]);
+    // En individual se ignoran los compañeros que hayan quedado marcados
+    expect(validarBitacora({ ...bitacoraValida(), companeros: [3] }).datos.companeros).toEqual([]);
+  });
+
+  test('"Otro" en estrategias y evaluación pide cuál y se guarda como texto', () => {
+    const d = { ...bitacoraValida(), estrategias: ['Taller', 'Otro'], evaluaciones: ['Otro'] };
+    const errores = validarBitacora(d).errores;
+    expect(errores).toContain('Indique cuál es la otra estrategia pedagógica.');
+    expect(errores).toContain('Indique cuál es el otro tipo de evaluación.');
+    const r = validarBitacora({ ...d, estrategiasOtro: ' Ateneo ', evaluacionesOtro: 'Quiz' });
+    expect(r.errores).toEqual([]);
+    expect(r.datos.estrategias).toEqual(['Taller', 'Otro: Ateneo']);
+    expect(r.datos.evaluaciones).toEqual(['Otro: Quiz']);
   });
 
   test('tolera entradas mal formadas sin lanzar', () => {

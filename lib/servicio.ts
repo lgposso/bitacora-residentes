@@ -49,6 +49,9 @@ interface Sesion {
   tema: string | null;
   estrategias: string[] | null;
   evaluaciones: string[] | null;
+  modalidad: string;
+  /** En la copia de una sesión grupal, la sesión original (de quien la registró). */
+  origen_id: number | null;
   bitacora_en: Date | null;
 }
 
@@ -185,10 +188,10 @@ export async function eliminarResidente(ctx: Ctx, usuario: string) {
   const pendientes = await ctx.db.query<{ blob_url: string }>(
     `WITH ses AS (SELECT id FROM sesiones WHERE residente_id = $1),
           asi AS (DELETE FROM asistencias WHERE sesion_id IN (SELECT id FROM ses)),
-          arc AS (DELETE FROM archivos WHERE residente_id = $1 RETURNING blob_url, sincronizado_en),
+          arc AS (DELETE FROM archivos WHERE residente_id = $1 RETURNING blob_url, blob_borrado),
           bor AS (DELETE FROM sesiones WHERE residente_id = $1),
           res AS (DELETE FROM residentes WHERE id = $1)
-     SELECT blob_url FROM arc WHERE sincronizado_en IS NULL`,
+     SELECT blob_url FROM arc WHERE NOT blob_borrado`,
     [r.id]
   );
   await limpiarIntentos(ctx.db, 'r:' + u);
@@ -201,6 +204,15 @@ export async function eliminarResidente(ctx: Ctx, usuario: string) {
 }
 
 // ---------- Residente ----------
+
+/** Residentes con los que puede registrar una sesión grupal: solo los de su mismo programa. */
+export async function listarCompaneros(db: Db, residenteId: number) {
+  return db.query<{ id: number; nombre: string }>(
+    `SELECT id, nombre FROM residentes
+      WHERE programa = (SELECT programa FROM residentes WHERE id = $1) AND id <> $1 ORDER BY nombre`,
+    [residenteId]
+  );
+}
 
 export async function autenticarResidente(db: Db, usuario: string, clave: string) {
   const u = String(usuario ?? '').trim().toLowerCase();
@@ -332,6 +344,17 @@ export async function autorizarSubida(db: Db, residenteId: number, tipo: TipoSub
   };
 }
 
+/** Inserta con el nombre dado; si ya existe en esa carpeta, prueba " (2)", " (3)"… */
+async function insertarConNombreLibre<T>(nombre: string, insertar: (nombreFinal: string) => Promise<T>): Promise<T> {
+  for (let n = 1; ; n++) {
+    try {
+      return await insertar(conSufijo(nombre, n));
+    } catch (e) {
+      if (!esDuplicado(e) || n > 50) throw e;
+    }
+  }
+}
+
 /** Registra un archivo ya subido al almacén con su ruta de destino en Drive. */
 export async function confirmarSubida(ctx: Ctx, residenteId: number, o: { tipo: TipoSubida; url: string; nombre: string }) {
   const r = await residente(ctx.db, residenteId);
@@ -358,16 +381,26 @@ export async function confirmarSubida(ctx: Ctx, residenteId: number, o: { tipo: 
     nombre = nombreSeguro(o.nombre) || 'archivo';
   }
 
-  // Si ya hay un archivo con el mismo nombre en la carpeta, se agrega " (2)", " (3)"…
-  for (let n = 1; ; n++) {
-    try {
-      await ctx.db.query(
-        'INSERT INTO archivos (residente_id, sesion_id, tipo, nombre, ruta, blob_url, bytes) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [r.id, sesion?.id ?? null, o.tipo, nombre, `${carpetaDestino}/${conSufijo(nombre, n)}`, url, info.bytes]
-      );
-      break;
-    } catch (e) {
-      if (!esDuplicado(e) || n > 50) throw e;
+  const archivo = await insertarConNombreLibre(nombre, async (n) => {
+    const [f] = await ctx.db.query<{ id: number }>(
+      'INSERT INTO archivos (residente_id, sesion_id, tipo, nombre, ruta, blob_url, bytes) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+      [r.id, sesion?.id ?? null, o.tipo, nombre, `${carpetaDestino}/${n}`, url, info.bytes]
+    );
+    return f.id;
+  });
+
+  // En una sesión grupal, el archivo también va a la carpeta de la sesión de cada compañero.
+  if (sesion) {
+    const subcarpeta = o.tipo === 'foto' ? CARPETA_FOTOS : CARPETA_MATERIAL;
+    const copias = await ctx.db.query<{ id: number; numero: number; programa: string; carpeta: string }>(
+      `SELECT s.id, s.numero, rr.programa, rr.carpeta FROM sesiones s JOIN residentes rr ON rr.id = s.residente_id
+        WHERE s.origen_id = $1`, [sesion.id]
+    );
+    for (const c of copias) {
+      await insertarConNombreLibre(nombre, (n) => ctx.db.query(
+        'INSERT INTO archivo_copias (archivo_id, sesion_id, ruta) VALUES ($1, $2, $3)',
+        [archivo, c.id, `${rutaSesion(c.programa, c.carpeta, c.numero)}/${subcarpeta}/${n}`]
+      ));
     }
   }
 
@@ -381,25 +414,66 @@ export async function confirmarSubida(ctx: Ctx, residenteId: number, o: { tipo: 
 
 // ---------- Bitácora y cierre ----------
 
-const marcarBitacora = (db: Db, residenteId: number) =>
-  db.query('UPDATE residentes SET bitacora_version = bitacora_version + 1 WHERE id = $1', [residenteId]);
-const marcarAsistencia = (db: Db, sesionId: number) =>
-  db.query('UPDATE sesiones SET asistencia_version = asistencia_version + 1 WHERE id = $1', [sesionId]);
 
+/**
+ * Guarda la bitácora. Si es grupal, en la misma sentencia (todo o nada) crea a cada compañero
+ * su copia de la sesión, con su propio número siguiente, ya completa y apuntando a la original.
+ */
 export async function enviarBitacora(ctx: Ctx, residenteId: number, formulario: unknown) {
   const v = validarBitacora(formulario);
   if (v.errores.length) throw new ErrorUsuario(v.errores.join('\n'));
   const d = v.datos;
-  const filas = await ctx.db.query(
-    `UPDATE sesiones SET fecha = $2, hora_inicio = $3, hora_final = $4, duracion_min = $5, escenario = $6,
-            poblacion = $7, participantes = $8, tema = $9, estrategias = $10, evaluaciones = $11,
-            estado = 'fotos', bitacora_en = now()
-      WHERE residente_id = $1 AND estado = 'qr' RETURNING id`,
-    [residenteId, d.fecha, d.horaInicio, d.horaFinal, d.duracionMinutos, d.escenario, d.poblacion,
-      d.participantes, d.tema, d.estrategias, d.evaluaciones]
-  );
-  if (!filas.length) throw new ErrorUsuario('Este paso ya fue completado. Recargue la página para continuar.', 409);
-  await marcarBitacora(ctx.db, residenteId);
+  const r = await residente(ctx.db, residenteId);
+  if (d.companeros.length) {
+    const validos = await ctx.db.query(
+      'SELECT id FROM residentes WHERE id = ANY($1::int[]) AND programa = $2 AND id <> $3', [d.companeros, r.programa, r.id]
+    );
+    if (validos.length !== d.companeros.length) {
+      throw new ErrorUsuario('Los compañeros deben ser residentes de su mismo programa. Recargue la página e inténtelo de nuevo.');
+    }
+  }
+  let filas: { lider: number }[];
+  try {
+    filas = await ctx.db.query<{ lider: number }>(
+      `WITH lider AS (
+         UPDATE sesiones SET fecha = $2, hora_inicio = $3, hora_final = $4, duracion_min = $5, escenario = $6,
+                poblacion = $7, participantes = $8, tema = $9, estrategias = $10, evaluaciones = $11,
+                modalidad = $12, estado = 'fotos', bitacora_en = now()
+          WHERE residente_id = $1 AND estado = 'qr' RETURNING *
+       ), libres AS (
+         -- Sesión reservada al ingresar y aún sin usar (sin asistentes): la copia toma su número.
+         SELECT s.id, s.residente_id, s.numero FROM sesiones s
+          WHERE s.residente_id = ANY($13::int[]) AND s.estado = 'qr' AND EXISTS (SELECT 1 FROM lider)
+            AND NOT EXISTS (SELECT 1 FROM asistencias a WHERE a.sesion_id = s.id)
+       ), corridas AS (
+         -- ...y la sesión reservada pasa al número siguiente (carpeta y hoja de asistencia nuevas).
+         UPDATE sesiones s SET numero = (SELECT MAX(x.numero) + 1 FROM sesiones x WHERE x.residente_id = s.residente_id),
+                carpetas_sync = false, asistencia_version = s.asistencia_version + 1
+           FROM libres l WHERE s.id = l.id RETURNING s.id
+       ), copias AS (
+         INSERT INTO sesiones (residente_id, numero, token, estado, fecha, hora_inicio, hora_final, duracion_min, escenario,
+                               poblacion, participantes, tema, estrategias, evaluaciones, modalidad, origen_id,
+                               bitacora_en, cerrada_en)
+         SELECT c.id, COALESCE((SELECT l2.numero FROM libres l2 WHERE l2.residente_id = c.id),
+                               (SELECT COALESCE(MAX(x.numero), 0) + 1 FROM sesiones x WHERE x.residente_id = c.id)),
+                replace(gen_random_uuid()::text, '-', ''), 'cerrada', l.fecha, l.hora_inicio, l.hora_final, l.duracion_min,
+                l.escenario, l.poblacion, l.participantes, l.tema, l.estrategias, l.evaluaciones, l.modalidad, l.id,
+                now(), now()
+           FROM lider l CROSS JOIN unnest($13::int[]) AS c(id)
+         RETURNING id
+       )
+       SELECT (SELECT count(*) FROM lider)::int AS lider`,
+      [residenteId, d.fecha, d.horaInicio, d.horaFinal, d.duracionMinutos, d.escenario, d.poblacion,
+        d.participantes, d.tema, d.estrategias, d.evaluaciones, d.modalidad, d.companeros]
+    );
+  } catch (e) {
+    // Otro registro tomó el mismo número de sesión de un compañero al mismo tiempo: nada quedó guardado.
+    if (esDuplicado(e)) throw new ErrorUsuario('No se pudo guardar la bitácora. Intente enviarla de nuevo.', 409);
+    throw e;
+  }
+  if (!filas[0]?.lider) throw new ErrorUsuario('Este paso ya fue completado. Recargue la página para continuar.', 409);
+  await ctx.db.query('UPDATE residentes SET bitacora_version = bitacora_version + 1 WHERE id = ANY($1::int[])',
+    [[residenteId, ...d.companeros]]);
   return obtenerEstado(ctx, residenteId);
 }
 
@@ -447,9 +521,15 @@ export async function registrarAsistencia(ctx: Ctx, token: string, formulario: u
      RETURNING (creado <> actualizado) AS actualizado`,
     [s.id, d.nombre, d.correo, d.universidad, d.semestre]
   );
-  await marcarAsistencia(ctx.db, s.id);
-  // La bitácora muestra el número de asistentes: si ya se envió, también cambia.
-  if (s.bitacora_en) await marcarBitacora(ctx.db, s.residente_id);
+  // La asistencia también es la de las copias de los compañeros (sesión grupal).
+  await ctx.db.query('UPDATE sesiones SET asistencia_version = asistencia_version + 1 WHERE id = $1 OR origen_id = $1', [s.id]);
+  // La bitácora muestra el número de asistentes: si ya se envió, también cambia (la de cada participante).
+  if (s.bitacora_en) {
+    await ctx.db.query(
+      `UPDATE residentes SET bitacora_version = bitacora_version + 1
+        WHERE id IN (SELECT residente_id FROM sesiones WHERE id = $1 OR origen_id = $1)`, [s.id]
+    );
+  }
   return { actualizado: f.actualizado, numero: s.numero };
 }
 
@@ -479,6 +559,7 @@ export interface Confirmacion {
   residentes: number[];
   sesiones: number[];
   archivos: number[];
+  copias: number[];
   bitacoras: { id: number; version: number }[];
   asistencias: { id: number; version: number }[];
 }
@@ -492,15 +573,21 @@ export interface Pendientes {
 }
 
 async function filasBitacora(db: Db, residenteId: number): Promise<Celda[][]> {
-  const sesiones = await db.query<Sesion & { asistentes: number }>(
-    `SELECT s.*, (SELECT count(*) FROM asistencias a WHERE a.sesion_id = s.id)::int AS asistentes
+  // En una copia grupal, asistentes y participantes se toman de la sesión original.
+  const sesiones = await db.query<Sesion & { asistentes: number; otros: string | null }>(
+    `SELECT s.*,
+            (SELECT count(*) FROM asistencias a WHERE a.sesion_id = COALESCE(s.origen_id, s.id))::int AS asistentes,
+            (SELECT string_agg(CASE WHEN x.id = COALESCE(s.origen_id, s.id) THEN rr.nombre || ' (registró)' ELSE rr.nombre END,
+                               ', ' ORDER BY (x.id = COALESCE(s.origen_id, s.id)) DESC, rr.nombre)
+               FROM sesiones x JOIN residentes rr ON rr.id = x.residente_id
+              WHERE (x.id = COALESCE(s.origen_id, s.id) OR x.origen_id = COALESCE(s.origen_id, s.id)) AND x.id <> s.id) AS otros
        FROM sesiones s WHERE s.residente_id = $1 AND s.bitacora_en IS NOT NULL ORDER BY s.numero`,
     [residenteId]
   );
   return [
     BITACORA_ENCABEZADOS,
     ...sesiones.map((s) => [
-      s.numero, fechaDMY(s.fecha), s.hora_inicio ?? '', s.hora_final ?? '', formatDuracion(s.duracion_min ?? 0),
+      s.numero, s.modalidad, s.otros ?? '', fechaDMY(s.fecha), s.hora_inicio ?? '', s.hora_final ?? '', formatDuracion(s.duracion_min ?? 0),
       s.escenario ?? '', s.poblacion ?? '', s.participantes ?? '', s.tema ?? '',
       (s.estrategias ?? []).join(', '), (s.evaluaciones ?? []).join(', '), s.asistentes,
       `Evidencia Sesión ${s.numero}`, fechaHora(s.bitacora_en)
@@ -510,7 +597,8 @@ async function filasBitacora(db: Db, residenteId: number): Promise<Celda[][]> {
 
 async function filasAsistencia(db: Db, sesionId: number): Promise<Celda[][]> {
   const filas = await db.query<{ nombre: string; correo: string; universidad: string; semestre: string; actualizado: Date }>(
-    'SELECT nombre, correo, universidad, semestre, actualizado FROM asistencias WHERE sesion_id = $1 ORDER BY id', [sesionId]
+    `SELECT nombre, correo, universidad, semestre, actualizado FROM asistencias
+      WHERE sesion_id = (SELECT COALESCE(origen_id, id) FROM sesiones WHERE id = $1) ORDER BY id`, [sesionId]
   );
   return [
     ASISTENCIA_ENCABEZADOS,
@@ -521,7 +609,9 @@ async function filasAsistencia(db: Db, sesionId: number): Promise<Celda[][]> {
 /** Todo lo que falta llevar a Google Drive (por lotes). */
 export async function pendientesSync(db: Db, limite = 200): Promise<Pendientes> {
   const carpetas: string[] = [];
-  const confirmacion: Confirmacion = { programas: false, residentes: [], sesiones: [], archivos: [], bitacoras: [], asistencias: [] };
+  const confirmacion: Confirmacion = {
+    programas: false, residentes: [], sesiones: [], archivos: [], copias: [], bitacoras: [], asistencias: []
+  };
 
   if ((await leerAjuste(db, 'programas_sync')) !== '1') {
     carpetas.push(...PROGRAMAS.map(rutaPrograma));
@@ -545,6 +635,11 @@ export async function pendientesSync(db: Db, limite = 200): Promise<Pendientes> 
     'SELECT id, ruta, blob_url, bytes FROM archivos WHERE sincronizado_en IS NULL ORDER BY id LIMIT $1', [limite]
   );
   confirmacion.archivos = archivos.map((a) => a.id);
+  const copias = await db.query<{ id: number; ruta: string; blob_url: string; bytes: string | number }>(
+    `SELECT c.id, c.ruta, a.blob_url, a.bytes FROM archivo_copias c JOIN archivos a ON a.id = c.archivo_id
+      WHERE c.sincronizado_en IS NULL ORDER BY c.id LIMIT $1`, [limite]
+  );
+  confirmacion.copias = copias.map((c) => c.id);
 
   const hojas: Hoja[] = [];
   const bitacoras = await db.query<{ id: number; programa: string; carpeta: string; bitacora_version: number }>(
@@ -568,7 +663,7 @@ export async function pendientesSync(db: Db, limite = 200): Promise<Pendientes> 
 
   return {
     carpetas,
-    archivos: archivos.map((a) => ({ ruta: a.ruta, url: a.blob_url, bytes: Number(a.bytes) })),
+    archivos: [...archivos, ...copias].map((a) => ({ ruta: a.ruta, url: a.blob_url, bytes: Number(a.bytes) })),
     hojas,
     confirmacion
   };
@@ -592,16 +687,27 @@ export async function confirmarSync(ctx: Ctx, c: Partial<Confirmacion>) {
   if (sesiones.length) await db.query('UPDATE sesiones SET carpetas_sync = true WHERE id = ANY($1::int[])', [sesiones]);
 
   const ids = enteros(c.archivos);
-  let borrados = 0;
   if (ids.length) {
-    const hechos = await db.query<{ blob_url: string }>(
-      'UPDATE archivos SET sincronizado_en = now() WHERE id = ANY($1::int[]) AND sincronizado_en IS NULL RETURNING blob_url', [ids]
-    );
+    await db.query('UPDATE archivos SET sincronizado_en = now() WHERE id = ANY($1::int[]) AND sincronizado_en IS NULL', [ids]);
+  }
+  const copias = enteros(c.copias);
+  if (copias.length) {
+    await db.query('UPDATE archivo_copias SET sincronizado_en = now() WHERE id = ANY($1::int[]) AND sincronizado_en IS NULL', [copias]);
+  }
+  // La copia temporal se borra cuando el archivo y todas sus copias ya están en Drive.
+  const listos = await db.query<{ id: number; blob_url: string }>(
+    `SELECT a.id, a.blob_url FROM archivos a
+      WHERE NOT a.blob_borrado AND a.sincronizado_en IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM archivo_copias c WHERE c.archivo_id = a.id AND c.sincronizado_en IS NULL)`
+  );
+  let borrados = 0;
+  if (listos.length) {
     try {
-      await ctx.almacen.borrar(hechos.map((h) => h.blob_url));
-      borrados = hechos.length;
+      await ctx.almacen.borrar(listos.map((l) => l.blob_url));
+      await db.query('UPDATE archivos SET blob_borrado = true WHERE id = ANY($1::int[])', [listos.map((l) => l.id)]);
+      borrados = listos.length;
     } catch (e) {
-      console.error('No se pudieron borrar copias temporales:', e);
+      console.error('No se pudieron borrar copias temporales (se reintentará):', e);
     }
   }
   for (const b of versiones(c.bitacoras)) {
@@ -616,7 +722,8 @@ export async function confirmarSync(ctx: Ctx, c: Partial<Confirmacion>) {
 
 export async function estadoSync(db: Db) {
   const [p] = await db.query<{ archivos: number; hojas: number }>(
-    `SELECT (SELECT count(*) FROM archivos WHERE sincronizado_en IS NULL)::int AS archivos,
+    `SELECT ((SELECT count(*) FROM archivos WHERE sincronizado_en IS NULL)
+             + (SELECT count(*) FROM archivo_copias WHERE sincronizado_en IS NULL))::int AS archivos,
             ((SELECT count(*) FROM residentes WHERE bitacora_version > bitacora_sync)
              + (SELECT count(*) FROM sesiones WHERE asistencia_version > asistencia_sync))::int AS hojas`
   );

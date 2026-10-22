@@ -25,6 +25,7 @@ async function subir(residenteId: number, tipo: S.TipoSubida, nombre: string, mi
 }
 
 const bitacora = {
+  modalidad: 'Individual',
   fecha: '2026-09-29', horaInicio: '07:00', horaFinal: '08:45',
   escenario: 'Otro', escenarioOtro: 'Auditorio', poblacion: 'Ambos', participantes: '15',
   tema: 'Manejo de sepsis', estrategias: ['Caso clínico', 'Gamificación'], evaluaciones: ['Rúbrica', 'Estación ECOE']
@@ -201,8 +202,8 @@ describe('sincronización con Drive', () => {
     ]);
     const bit = p.hojas.find((h) => h.ruta === `${base}/Bitácora.xlsx`)!;
     expect(bit.filas[0]).toEqual(BITACORA_ENCABEZADOS);
-    expect(bit.filas[1].slice(0, 13)).toEqual([
-      1, '29/09/2026', '07:00', '08:45', '1 h 45 min', 'Otro: Auditorio', 'Ambos', 15, 'Manejo de sepsis',
+    expect(bit.filas[1].slice(0, 15)).toEqual([
+      1, 'Individual', '', '29/09/2026', '07:00', '08:45', '1 h 45 min', 'Otro: Auditorio', 'Ambos', 15, 'Manejo de sepsis',
       'Caso clínico, Gamificación', 'Rúbrica, Estación ECOE', 1, 'Evidencia Sesión 1'
     ]);
     const asis = p.hojas.find((h) => h.ruta === `${base}/Evidencia Sesión 1/Asistencia Sesión 1.xlsx`)!;
@@ -273,5 +274,101 @@ describe('migración', () => {
       ['Antes Uno', 'antes@u.co', '', '7'],
       ['Después Dos', 'despues@u.co', 'Universidad del Cauca', '9']
     ]);
+  });
+});
+
+describe('sesión grupal', () => {
+  async function escenario() {
+    const laura = await residenteConPlan('laura@correo.com', 'Laura Gómez');
+    const ana = await residenteConPlan('ana@correo.com', 'Ana Ruiz');
+    const pedro = await residenteConPlan('pedro@correo.com', 'Pedro Díaz');
+    const carlos = await residenteConPlan('carlos@correo.com', 'Carlos Mora', 'Cirugía General');
+    // Pedro está en plena sesión 1 (ya tiene asistentes); la sesión 1 de Ana está reservada pero sin usar.
+    const tokenPedro = (await S.obtenerEstado(ctx, pedro)).sesion!.urlAsistencia.split('/asistencia/')[1];
+    await S.registrarAsistencia(ctx, tokenPedro, estudiante('De Pedro', 'depedro@u.co'));
+    const token = (await S.obtenerEstado(ctx, laura)).sesion!.urlAsistencia.split('/asistencia/')[1];
+    return { laura, ana, pedro, carlos, token };
+  }
+
+  test('la lista de compañeros es solo de su mismo programa y no lo incluye a él', async () => {
+    const { laura, carlos } = await escenario();
+    expect((await S.listarCompaneros(ctx.db, laura)).map((c) => c.nombre)).toEqual(['Ana Ruiz', 'Pedro Díaz']);
+    expect(await S.listarCompaneros(ctx.db, carlos)).toEqual([]);
+  });
+
+  test('no acepta compañeros de otro programa ni a sí mismo', async () => {
+    const { laura, ana, carlos } = await escenario();
+    for (const malos of [[ana, carlos], [laura], [99999]]) {
+      await expect(S.enviarBitacora(ctx, laura, { ...bitacora, modalidad: 'Grupal', companeros: malos }))
+        .rejects.toThrow(/mismo programa/);
+    }
+    // Nada cambió: la sesión de Laura sigue esperando la bitácora
+    expect((await S.obtenerEstado(ctx, laura)).sesion?.estado).toBe('qr');
+  });
+
+  test('se replica a cada compañero con su propio número, archivos y asistencia', async () => {
+    const { laura, ana, pedro, token } = await escenario();
+    await S.registrarAsistencia(ctx, token, estudiante('Est Uno', 'uno@u.co'));
+    await S.enviarBitacora(ctx, laura, { ...bitacora, modalidad: 'Grupal', companeros: [ana, pedro] });
+
+    // Cuenta como sesión completa para cada compañero.
+    // Ana: la copia toma su número reservado sin usar (1) y su sesión abierta pasa a la 2.
+    // Pedro: su sesión 1 ya está en uso, así que la copia queda como la 2.
+    const lista = Object.fromEntries((await S.listarResidentes(ctx.db)).map((r) => [r.nombre, r]));
+    expect(lista['Ana Ruiz']).toMatchObject({ sesionesCompletas: 1, sesionEnCurso: 2 });
+    expect(lista['Pedro Díaz']).toMatchObject({ sesionesCompletas: 1, sesionEnCurso: 1 });
+    expect((await S.obtenerEstado(ctx, ana)).sesion?.numero).toBe(2);
+    expect((await S.obtenerEstado(ctx, pedro)).sesion?.numero).toBe(1);
+
+    // Asistentes tardíos y archivos subidos por Laura llegan también a los compañeros
+    await S.registrarAsistencia(ctx, token, estudiante('Est Dos', 'dos@u.co'));
+    await subir(laura, 'foto', 'grupo.jpg', 'image/jpeg');
+
+    const p = await S.pendientesSync(ctx.db);
+    const base = 'MGB/Proyecto1/Pediatría';
+    expect(p.carpetas).toEqual(expect.arrayContaining([
+      `${base}/Ana Ruiz/Evidencia Sesión 1/Registro Fotográfico`,
+      `${base}/Ana Ruiz/Evidencia Sesión 2/Registro Fotográfico`,
+      `${base}/Pedro Díaz/Evidencia Sesión 2/Material Utilizado`
+    ]));
+    const fotos = p.archivos.filter((a) => a.ruta.endsWith('grupo.jpg'));
+    expect(fotos.map((a) => a.ruta).sort()).toEqual([
+      `${base}/Ana Ruiz/Evidencia Sesión 1/Registro Fotográfico/grupo.jpg`,
+      `${base}/Laura Gómez/Evidencia Sesión 1/Registro Fotográfico/grupo.jpg`,
+      `${base}/Pedro Díaz/Evidencia Sesión 2/Registro Fotográfico/grupo.jpg`
+    ]);
+    expect(new Set(fotos.map((a) => a.url)).size).toBe(1);
+
+    const hoja = (ruta: string) => p.hojas.find((h) => h.ruta === ruta)!.filas;
+    const asisPedro = hoja(`${base}/Pedro Díaz/Evidencia Sesión 2/Asistencia Sesión 2.xlsx`);
+    expect(asisPedro.slice(1).map((f) => f[1])).toEqual(['Est Uno', 'Est Dos']);
+    // La sesión propia de Pedro conserva su asistencia
+    expect(hoja(`${base}/Pedro Díaz/Evidencia Sesión 1/Asistencia Sesión 1.xlsx`).slice(1).map((f) => f[1])).toEqual(['De Pedro']);
+    // La hoja de asistencia de Ana para la sesión 1 ahora es la de la sesión grupal
+    expect(hoja(`${base}/Ana Ruiz/Evidencia Sesión 1/Asistencia Sesión 1.xlsx`).slice(1).map((f) => f[1])).toEqual(['Est Uno', 'Est Dos']);
+
+    const filaDe = (nombre: string) => hoja(`${base}/${nombre}/Bitácora.xlsx`)[1];
+    expect(filaDe('Laura Gómez').slice(0, 3)).toEqual([1, 'Grupal', 'Ana Ruiz, Pedro Díaz']);
+    expect(filaDe('Ana Ruiz').slice(0, 3)).toEqual([1, 'Grupal', 'Laura Gómez (registró), Pedro Díaz']);
+    expect(filaDe('Pedro Díaz').slice(0, 3)).toEqual([2, 'Grupal', 'Laura Gómez (registró), Ana Ruiz']);
+    expect(filaDe('Pedro Díaz')[13]).toBe(2); // asistentes registrados
+    expect(filaDe('Pedro Díaz')[14]).toBe('Evidencia Sesión 2');
+
+    // La copia temporal se borra solo cuando todos los destinos ya están en Drive
+    const sinCopias = { ...p.confirmacion, copias: [] };
+    await S.confirmarSync(ctx, sinCopias);
+    expect([...almacen.archivos.keys()].some((k) => k.includes('/foto/'))).toBe(true);
+    await S.confirmarSync(ctx, p.confirmacion);
+    expect([...almacen.archivos.keys()].some((k) => k.includes('/foto/'))).toBe(false);
+    expect(await S.estadoSync(ctx.db)).toMatchObject({ archivosPendientes: 0, hojasPendientes: 0 });
+  });
+
+  test('si se elimina un compañero, desaparece de los participantes de los demás', async () => {
+    const { laura, ana, pedro } = await escenario();
+    await S.enviarBitacora(ctx, laura, { ...bitacora, modalidad: 'Grupal', companeros: [ana, pedro] });
+    await S.eliminarResidente(ctx, 'ana@correo.com');
+    const p = await S.pendientesSync(ctx.db);
+    const fila = p.hojas.find((h) => h.ruta.endsWith('Laura Gómez/Bitácora.xlsx'))!.filas[1];
+    expect(fila.slice(1, 3)).toEqual(['Grupal', 'Pedro Díaz']);
   });
 });

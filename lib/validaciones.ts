@@ -1,7 +1,7 @@
 /**
  * Validaciones y cálculos puros (sin base de datos ni Google). Compartidos por servidor y navegador.
  */
-import { ESCENARIOS, ESTRATEGIAS, EVALUACIONES, PLAN_EXTENSIONES, POBLACIONES, SEMESTRES } from './config';
+import { ESCENARIOS, ESTRATEGIAS, EVALUACIONES, MODALIDADES, PLAN_EXTENSIONES, POBLACIONES, SEMESTRES } from './config';
 
 /** Error con mensaje apto para mostrar al usuario. */
 export class ErrorUsuario extends Error {
@@ -53,6 +53,9 @@ const lista = (v: unknown) => (Array.isArray(v) ? v.map(texto).filter(Boolean) :
 const enLista = (opciones: readonly string[], v: string) => opciones.includes(v);
 
 export interface DatosBitacora {
+  modalidad: string;
+  /** Ids de los residentes que participaron (solo en sesiones grupales). */
+  companeros: number[];
   fecha: string;
   horaInicio: string;
   horaFinal: string;
@@ -69,6 +72,15 @@ export interface DatosBitacora {
 export function validarBitacora(input: any): { errores: string[]; datos: DatosBitacora } {
   const i = input ?? {};
   const errores: string[] = [];
+
+  const modalidad = texto(i.modalidad);
+  if (!enLista(MODALIDADES, modalidad)) errores.push('Seleccione si la sesión fue individual o grupal.');
+  let companeros: number[] = [];
+  if (modalidad === 'Grupal') {
+    const ids = (Array.isArray(i.companeros) ? i.companeros : []).map(Number).filter((n: number) => Number.isInteger(n) && n > 0);
+    companeros = [...new Set<number>(ids)];
+    if (!companeros.length) errores.push('Seleccione al menos un compañero.');
+  }
 
   const fecha = parseFecha(i.fecha);
   if (!fecha) errores.push('La fecha no es válida.');
@@ -102,20 +114,27 @@ export function validarBitacora(input: any): { errores: string[]; datos: DatosBi
   const tema = texto(i.tema);
   if (!tema) errores.push('Escriba el tema desarrollado.');
 
-  const estrategias = lista(i.estrategias);
-  if (!estrategias.length || estrategias.some((x) => !enLista(ESTRATEGIAS, x))) {
-    errores.push('Seleccione al menos una estrategia pedagógica válida.');
-  }
-
-  const evaluaciones = lista(i.evaluaciones);
-  if (!evaluaciones.length || evaluaciones.some((x) => !enLista(EVALUACIONES, x))) {
-    errores.push('Seleccione al menos un tipo de evaluación válido.');
-  }
+  const estrategias = conOtro(lista(i.estrategias), i.estrategiasOtro, ESTRATEGIAS, errores,
+    'Seleccione al menos una estrategia pedagógica válida.', 'Indique cuál es la otra estrategia pedagógica.');
+  const evaluaciones = conOtro(lista(i.evaluaciones), i.evaluacionesOtro, EVALUACIONES, errores,
+    'Seleccione al menos un tipo de evaluación válido.', 'Indique cuál es el otro tipo de evaluación.');
 
   return {
     errores,
-    datos: { fecha: fecha ?? '', horaInicio, horaFinal, duracionMinutos, escenario, poblacion, participantes, tema, estrategias, evaluaciones }
+    datos: { modalidad, companeros, fecha: fecha ?? '', horaInicio, horaFinal, duracionMinutos, escenario, poblacion, participantes, tema, estrategias, evaluaciones }
   };
+}
+
+/** Selección múltiple con "Otro": el texto escrito reemplaza a "Otro" como "Otro: <texto>". */
+function conOtro(elegidas: string[], otro: unknown, opciones: readonly string[], errores: string[], faltan: string, falta: string) {
+  if (!elegidas.length || elegidas.some((x) => !enLista(opciones, x))) {
+    errores.push(faltan);
+    return elegidas;
+  }
+  if (!elegidas.includes('Otro')) return elegidas;
+  const cual = texto(otro);
+  if (!cual) errores.push(falta);
+  return elegidas.map((x) => (x === 'Otro' ? `Otro: ${cual}` : x));
 }
 
 export function esCorreo(v: string) {

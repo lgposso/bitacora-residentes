@@ -80,6 +80,32 @@ export const ESQUEMA = [
     creado timestamptz NOT NULL DEFAULT now(),
     sincronizado_en timestamptz
   )`,
+  // Sesiones grupales: cada compañero recibe una copia de la sesión que apunta a la original (origen_id).
+  `ALTER TABLE sesiones ADD COLUMN IF NOT EXISTS modalidad text NOT NULL DEFAULT 'Individual'`,
+  `ALTER TABLE sesiones ADD COLUMN IF NOT EXISTS origen_id int REFERENCES sesiones(id) ON DELETE SET NULL`,
+  `CREATE INDEX IF NOT EXISTS sesiones_origen ON sesiones (origen_id)`,
+  // Número de sesión único por residente, verificado al final de cada sentencia: permite que una copia
+  // grupal tome el número de una sesión reservada sin usar mientras esta pasa al siguiente.
+  `DO $$ BEGIN
+     IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sesiones_residente_id_numero_key') THEN
+       ALTER TABLE sesiones DROP CONSTRAINT sesiones_residente_id_numero_key;
+     END IF;
+     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sesiones_numero_unico') THEN
+       ALTER TABLE sesiones ADD CONSTRAINT sesiones_numero_unico UNIQUE (residente_id, numero) DEFERRABLE INITIALLY IMMEDIATE;
+     END IF;
+   END $$`,
+  // La copia temporal de un archivo se borra solo cuando él y todas sus copias ya están en Drive.
+  `ALTER TABLE archivos ADD COLUMN IF NOT EXISTS blob_borrado boolean`,
+  `UPDATE archivos SET blob_borrado = (sincronizado_en IS NOT NULL) WHERE blob_borrado IS NULL`,
+  `ALTER TABLE archivos ALTER COLUMN blob_borrado SET DEFAULT false`,
+  // Destinos adicionales de un archivo (las carpetas de los compañeros en una sesión grupal).
+  `CREATE TABLE IF NOT EXISTS archivo_copias (
+    id serial PRIMARY KEY,
+    archivo_id int NOT NULL REFERENCES archivos(id) ON DELETE CASCADE,
+    sesion_id int NOT NULL REFERENCES sesiones(id) ON DELETE CASCADE,
+    ruta text UNIQUE NOT NULL,
+    sincronizado_en timestamptz
+  )`,
   `CREATE TABLE IF NOT EXISTS intentos (
     clave text PRIMARY KEY,
     n int NOT NULL,
